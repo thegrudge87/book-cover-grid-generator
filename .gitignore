@@ -22,7 +22,7 @@ credentials.json
 
 # Data & generated files
 sources/
-outout/
+output/
 *.pdf
 *.csv
 
