@@ -22,22 +22,22 @@ TEMP_DIR = os.getenv("TEMP_DIR", "temp_images")
 IMAGE_SELECTOR = os.getenv("IMAGE_SELECTOR", ".main-image-nosrc")
 
 # A4 paper size in mm
-A4_WIDTH = os.getenv("A4_WIDTH", 210)
-A4_HEIGHT = os.getenv("A4_HEIGHT", 297)
+A4_WIDTH = int(os.getenv("A4_WIDTH", 210))
+A4_HEIGHT = int(os.getenv("A4_HEIGHT", 297))
 MM_TO_PT = 2.834  # Convert mm to points
 PAGE_WIDTH = A4_WIDTH * MM_TO_PT
 PAGE_HEIGHT = A4_HEIGHT * MM_TO_PT
 
 # Book cover size in mm
-COVER_WIDTH_MM = os.getenv("COVER_WIDTH_MM", 30)
-COVER_HEIGHT_MM = os.getenv("COVER_HEIGHT_MM", 43)
+COVER_WIDTH_MM = int(os.getenv("COVER_WIDTH_MM", 30))
+COVER_HEIGHT_MM = int(os.getenv("COVER_HEIGHT_MM", 43))
 COVER_WIDTH_PT = int(COVER_WIDTH_MM * MM_TO_PT)
 COVER_HEIGHT_PT = int(COVER_HEIGHT_MM * MM_TO_PT)
 
 # Margins and Spacing
-MARGIN_LEFT_MM = os.getenv("MARGIN_LEFT_MM", 9)
-MARGIN_TOP_MM = os.getenv("MARGIN_TOP_MM", 9)
-SPACING_MM = os.getenv("SPACING_MM", 2)
+MARGIN_LEFT_MM = int(os.getenv("MARGIN_LEFT_MM", 9))
+MARGIN_TOP_MM = int(os.getenv("MARGIN_TOP_MM", 9))
+SPACING_MM = int(os.getenv("SPACING_MM", 2))
 MARGIN_LEFT_PT = MARGIN_LEFT_MM * MM_TO_PT
 MARGIN_TOP_PT = MARGIN_TOP_MM * MM_TO_PT
 SPACING_PT = SPACING_MM * MM_TO_PT
@@ -49,8 +49,8 @@ images_per_page = cols * rows
 
 
 # Sheets config
-SHEETS_COL_URL = os.getenv("SHEETS_COL_URL", 3)
-SHEETS_COL_STATUS = os.getenv("SHEETS_COL_STATUS", 4)
+SHEETS_COL_URL = int(os.getenv("SHEETS_COL_URL", 3))
+SHEETS_COL_STATUS = int(os.getenv("SHEETS_COL_STATUS", 4))
 SHEETS_SKIP_STATUS = os.getenv("SHEETS_SKIP_STATUS", "printed")
 SHEETS_DONE_STATUS = os.getenv("SHEETS_DONE_STATUS", "processed")
 SHEETS_SOURCE_NAME = os.getenv("SHEETS_SOURCE_NAME", "To Process")
@@ -193,9 +193,12 @@ def process_google_sheets(sheet_id, credentials_file):
 
     # Get all data from the sheet
     data = source_sheet.get_all_values()
+    print(f"✅ Data from Google sheets is fetched")
 
     # Extract rows where Column B is NOT empty and Column C is NOT "printed"
     url_list = [row[SHEETS_COL_URL] for row in data[1:] if row[SHEETS_COL_URL].strip() and row[SHEETS_COL_STATUS].strip().lower() != SHEETS_SKIP_STATUS]
+
+    print(f"✅ Loaded {len(url_list)} images for processing")
 
     processed_urls = process_images(url_list)
 
@@ -225,6 +228,8 @@ def process_csv_file(csv_path):
         return
 
     url_list = df["url"].tolist()
+    print(f"✅ Loaded {len(url_list)} images for processing")
+
     processed_urls = process_images(url_list)
 
     if processed_urls:
