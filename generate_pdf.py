@@ -2,35 +2,42 @@ import os
 import argparse
 import requests
 import shutil
-import mimetypes
 import pandas as pd
 from bs4 import BeautifulSoup
-from PIL import Image
+from PIL import Image, ImageOps
 from fpdf import FPDF
 from oauth2client.service_account import ServiceAccountCredentials
+from tqdm import tqdm
+from dotenv import load_dotenv
 import gspread
 
+# Load environment variables from .env file
+load_dotenv()
+
 # --- CONSTANTS ---
-TEMP_DIR = "temp_images"
-OUTPUT_PDF = "book_grid_all_in_one1.pdf"
-IMAGE_SELECTOR = ".main-image-nosrc"  # CSS Selector for book cover image
+# Name of the Temp directory where the images will be stored.
+TEMP_DIR = os.getenv("TEMP_DIR", "temp_images")
+
+# CSS Selector for book cover image
+IMAGE_SELECTOR = os.getenv("IMAGE_SELECTOR", ".main-image-nosrc")
 
 # A4 paper size in mm
-A4_WIDTH, A4_HEIGHT = 210, 297
+A4_WIDTH = os.getenv("A4_WIDTH", 210)
+A4_HEIGHT = os.getenv("A4_HEIGHT", 297)
 MM_TO_PT = 2.834  # Convert mm to points
 PAGE_WIDTH = A4_WIDTH * MM_TO_PT
 PAGE_HEIGHT = A4_HEIGHT * MM_TO_PT
 
 # Book cover size in mm
-COVER_WIDTH_MM = 30
-COVER_HEIGHT_MM = 43
+COVER_WIDTH_MM = os.getenv("COVER_WIDTH_MM", 30)
+COVER_HEIGHT_MM = os.getenv("COVER_HEIGHT_MM", 43)
 COVER_WIDTH_PT = int(COVER_WIDTH_MM * MM_TO_PT)
 COVER_HEIGHT_PT = int(COVER_HEIGHT_MM * MM_TO_PT)
 
 # Margins and Spacing
-MARGIN_LEFT_MM = 9
-MARGIN_TOP_MM = 9
-SPACING_MM = 2
+MARGIN_LEFT_MM = os.getenv("MARGIN_LEFT_MM", 9)
+MARGIN_TOP_MM = os.getenv("MARGIN_TOP_MM", 9)
+SPACING_MM = os.getenv("SPACING_MM", 2)
 MARGIN_LEFT_PT = MARGIN_LEFT_MM * MM_TO_PT
 MARGIN_TOP_PT = MARGIN_TOP_MM * MM_TO_PT
 SPACING_PT = SPACING_MM * MM_TO_PT
@@ -39,6 +46,15 @@ SPACING_PT = SPACING_MM * MM_TO_PT
 cols = int((PAGE_WIDTH - 2 * MARGIN_LEFT_PT) // (COVER_WIDTH_PT + SPACING_PT))
 rows = int((PAGE_HEIGHT - 2 * MARGIN_TOP_PT) // (COVER_HEIGHT_PT + SPACING_PT))
 images_per_page = cols * rows
+
+
+# Sheets config
+SHEETS_COL_URL = os.getenv("SHEETS_COL_URL", 3)
+SHEETS_COL_STATUS = os.getenv("SHEETS_COL_STATUS", 4)
+SHEETS_SKIP_STATUS = os.getenv("SHEETS_SKIP_STATUS", "printed")
+SHEETS_DONE_STATUS = os.getenv("SHEETS_DONE_STATUS", "processed")
+SHEETS_SOURCE_NAME = os.getenv("SHEETS_SOURCE_NAME", "To Process")
+SHEETS_UPDATED_NAME = os.getenv("SHEETS_UPDATED_NAME", "Processed")
 
 # Create temp folder
 os.makedirs(TEMP_DIR, exist_ok=True)
@@ -93,52 +109,62 @@ def process_images(url_list):
     pdf = FPDF(unit="mm", format="A4")
     processed_urls = []
 
-    for i in range(0, len(url_list), images_per_page):
-        pdf.add_page()
-        page_urls = url_list[i:i + images_per_page]
+    with tqdm(total=len(url_list), desc="Processing Images", unit="img") as pbar:
+        for i in range(0, len(url_list), images_per_page):
+            pdf.add_page()
+            page_urls = url_list[i:i + images_per_page]
 
-        for index, page_url in enumerate(page_urls):
-            try:
-                # Get image URL
-                img_url = fetch_image_url(page_url)
-                if not img_url:
-                    continue  # Skip if no image found
+            for index, page_url in enumerate(page_urls):
+                try:
+                    # Get image URL
+                    img_url = fetch_image_url(page_url)
+                    if not img_url:
+                        continue  # Skip if no image found
 
-                # Download the image
-                img_name = f"{i + index + 1}.jpg"
-                img_path = os.path.join(TEMP_DIR, img_name)
-                response = requests.get(img_url, stream=True, timeout=10)
-                if response.status_code == 200:
-                    with open(img_path, "wb") as file:
-                        file.write(response.content)
-                else:
-                    print(f"⚠️ Skipping {img_url} (Failed to Download)")
-                    continue
+                    # Download the image
+                    img_name = f"{i + index + 1}.jpg"
+                    img_path = os.path.join(TEMP_DIR, img_name)
+                    response = requests.get(img_url, stream=True, timeout=10)
+                    if response.status_code == 200:
+                        with open(img_path, "wb") as file:
+                            file.write(response.content)
+                    else:
+                        print(f"⚠️ Skipping {img_url} (Failed to Download)")
+                        continue
 
-                # Open and process image
-                img = Image.open(img_path)
-                if img.mode == "RGBA":
-                    img = img.convert("RGB")
-                img = img.resize((COVER_WIDTH_PT * 2, COVER_HEIGHT_PT * 2), Image.LANCZOS)
+                    # Open and process image
+                    img = Image.open(img_path)
+                    if img.mode == "RGBA":
+                        img = img.convert("RGB")
+                    img = img.resize((COVER_WIDTH_PT * 2, COVER_HEIGHT_PT * 2), Image.LANCZOS)
 
-                # Compute X and Y positions
-                col = index % cols
-                row = index // cols
-                x_offset = MARGIN_LEFT_MM + col * (COVER_WIDTH_MM + SPACING_MM)
-                y_offset = MARGIN_TOP_MM + row * (COVER_HEIGHT_MM + SPACING_MM)
+                    # Compute X and Y positions
+                    col = index % cols
+                    row = index // cols
+                    x_offset = MARGIN_LEFT_MM + col * (COVER_WIDTH_MM + SPACING_MM)
+                    y_offset = MARGIN_TOP_MM + row * (COVER_HEIGHT_MM + SPACING_MM)
 
-                # Save high-quality resized image
-                img.save(img_path, quality=95, optimize=True)
 
-                # Add to PDF
-                pdf.image(img_path, x=x_offset, y=y_offset, w=COVER_WIDTH_MM, h=COVER_HEIGHT_MM)
-                print(f"processed {i + index + 1}/{len(url_list)}")
+                    if BORDERED_IMAGES:
+                        bordered_img = ImageOps.expand(img, border=1, fill=(176, 176, 176))
+                        # Save high-quality resized image + a border
+                        bordered_img.save(img_path, quality=95, optimize=True)
+                    else:
+                        # Save high-quality resized image
+                        img.save(img_path, quality=95, optimize=True)
 
-                # Store processed URL
-                processed_urls.append([page_url])
 
-            except Exception as e:
-                print(f"❌ Error processing {page_url}: {e}")
+                    # Add to PDF
+                    pdf.image(img_path, x=x_offset, y=y_offset, w=COVER_WIDTH_MM, h=COVER_HEIGHT_MM)
+
+                    # Store processed URL
+                    processed_urls.append([page_url])
+
+                    # Update progress bar
+                    pbar.update(1)
+
+                except Exception as e:
+                    print(f"❌ Error processing {page_url}: {e}")
 
     # Save the final PDF
     pdf.output(OUTPUT_PDF)
@@ -162,28 +188,28 @@ def process_google_sheets(sheet_id, credentials_file):
     client = gspread.authorize(creds)
 
     sheet = client.open_by_key(sheet_id)
-    source_sheet = sheet.worksheet("To Process")
-    processed_sheet = sheet.worksheet("Processed")
+    source_sheet = sheet.worksheet(SHEETS_SOURCE_NAME)
+    processed_sheet = sheet.worksheet(SHEETS_UPDATED_NAME)
 
     # Get all data from the sheet
     data = source_sheet.get_all_values()
 
     # Extract rows where Column B is NOT empty and Column C is NOT "printed"
-    url_list = [row[1] for row in data[1:] if row[1].strip() and row[2].strip().lower() != "printed"]
-    #url_list = source_sheet.col_values(2)[1:]  # Read from Column B instead of Column A (excluding header --> [1:])
+    url_list = [row[SHEETS_COL_URL] for row in data[1:] if row[SHEETS_COL_URL].strip() and row[SHEETS_COL_STATUS].strip().lower() != SHEETS_SKIP_STATUS]
 
     processed_urls = process_images(url_list)
 
     if processed_urls:
         # Append processed URLs to "Processed" sheet
         processed_sheet.append_rows(processed_urls)
+        print(f"✅ Processed URLs added to 'Processed' tab.")
 
         # Mark processed rows as "printed"
-        for i, row in enumerate(data[1:], start=2):  # Start from row 2 (skip headers)
-            if row[1] in processed_urls:
-                source_sheet.update_cell(i, 3, "printed")  # Column C gets "printed"
-
-    print(f"✅ Processed URLs moved to 'Processed' tab.")
+        # TODO: Need to change this. If there many items hit the limit of the Google Sheets API.
+        #for i, row in enumerate(data[1:], start=2):  # Start from row 2 (skip headers)
+        #    if any(row[SHEETS_COL_URL] in sublist for sublist in processed_urls):
+        #        source_sheet.update_cell(i, SHEETS_COL_STATUS+1, SHEETS_DONE_STATUS)  # "Status" Column gets updated to "printed"
+        #print(f"✅ Processed URLs been updated in the 'To Process' tab.")
 
 def process_csv_file(csv_path):
     """Fetches URLs from a CSV file and updates it after processing."""
@@ -217,9 +243,14 @@ if __name__ == "__main__":
     parser.add_argument("--source", choices=["csv", "sheets"], required=True, help="Specify data source: 'csv' or 'sheets'")
     parser.add_argument("--path", help="Path to local CSV file (if source is 'csv')")
     parser.add_argument("--sheet-id", help="Google Sheet ID (if source is 'sheets')")
-    parser.add_argument("--credentials", help="Path to Google Sheets API credentials JSON (if source is 'sheets')")
+    parser.add_argument("--credentials", type=str, default="credentials.json", help="Path to Google Sheets API credentials JSON (if source is 'sheets'). Optional argument (Default: 'credentials.json')")
+    parser.add_argument("--bordered", action="store_true", help="Add a grey border around images.")
+    parser.add_argument('--output', type=str, default="output/book_grid.pdf", help="A path the generated PDF file (optional). Default: 'output/book_grid.pdf'")
 
     args = parser.parse_args()
+
+    OUTPUT_PDF = args.output
+    BORDERED_IMAGES = args.bordered
 
     if args.source == "csv":
         if not args.path:
