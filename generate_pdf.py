@@ -17,6 +17,12 @@ load_dotenv()
 # --- CONSTANTS ---
 # Name of the Temp directory where the images will be stored.
 TEMP_DIR = os.getenv("TEMP_DIR", "temp_images")
+USER_AGENT = os.getenv("USER_AGENT", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36")
+HEADERS = {
+    "User-Agent": USER_AGENT,    
+    "Referer": "https://www.google.com/",
+}
+SPECIAL_DOMAINS =os.getenv("SPECIAL_DOMAINS", "").split(",")
 
 # CSS Selector for book cover image
 IMAGE_SELECTOR = os.getenv("IMAGE_SELECTOR", ".main-image-nosrc")
@@ -59,10 +65,20 @@ SHEETS_UPDATED_NAME = os.getenv("SHEETS_UPDATED_NAME", "Processed")
 # Create temp folder
 os.makedirs(TEMP_DIR, exist_ok=True)
 
+def is_special_domain(url):
+    if any(domain in url for domain in SPECIAL_DOMAINS):
+        return True
+    return False
+
+
 def is_image_url(url):
     """Checks if a URL is an image by looking at its content type."""
     try:
-        response = requests.head(url, timeout=10)
+        if is_special_domain(url):
+            response = requests.head(url, headers=HEADERS, timeout=10)
+        else:
+            response = requests.head(url, timeout=10)
+
         if response.status_code == 200:
             content_type = response.headers.get("Content-Type", "").lower()
             return content_type.startswith("image")
@@ -124,7 +140,13 @@ def process_images(url_list):
                     # Download the image
                     img_name = f"{i + index + 1}.jpg"
                     img_path = os.path.join(TEMP_DIR, img_name)
-                    response = requests.get(img_url, stream=True, timeout=10)
+
+                    #Use special Headers for special domains
+                    if is_special_domain(img_url):
+                        response = requests.get(img_url, headers=HEADERS, stream=True, timeout=10)
+                    else:
+                        response = requests.get(img_url, stream=True, timeout=10)
+
                     if response.status_code == 200:
                         with open(img_path, "wb") as file:
                             file.write(response.content)
