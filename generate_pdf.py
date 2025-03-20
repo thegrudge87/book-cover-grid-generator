@@ -1,6 +1,7 @@
 import os
 import argparse
 import requests
+import time
 import shutil
 import pandas as pd
 from bs4 import BeautifulSoup
@@ -192,6 +193,23 @@ def process_images(url_list):
     pdf.output(OUTPUT_PDF)
     print(f"✅ PDF saved as {OUTPUT_PDF}")
 
+    # Ask the user what to do with the processed images
+    choice = input("📌 Do you want to archive the processed images before deleting them? (yes/no): ").strip().lower()
+
+    if choice in ["yes", "y"]:
+        timestamp = time.strftime("%Y%m%d_%H%M%S")  # Generate timestamp
+        archive_path = os.path.join("output", f"processed_images_{timestamp}.zip")
+
+        shutil.make_archive(archive_path.replace(".zip", ""), 'zip', TEMP_DIR)
+        print(f"✅ Processed images archived as {archive_path}")
+
+    # elif choice == "delete":
+    #     shutil.rmtree(TEMP_DIR)  # Remove temp images
+    #     print(f"✅ Processed images removed.")
+    #
+    # else:
+    #     print("⚠️ Invalid choice. Keeping processed images.")
+
     # Cleanup temp images
     shutil.rmtree(TEMP_DIR)
     print(f"✅ Processed images removed.")
@@ -272,11 +290,16 @@ if __name__ == "__main__":
     parser.add_argument("--sheet-id", help="Google Sheet ID (if source is 'sheets')")
     parser.add_argument("--credentials", type=str, default="credentials.json", help="Path to Google Sheets API credentials JSON (if source is 'sheets'). Optional argument (Default: 'credentials.json')")
     parser.add_argument("--bordered", action="store_true", help="Add a grey border around images.")
-    parser.add_argument('--output', type=str, default="output/book_grid.pdf", help="A path the generated PDF file (optional). Default: 'output/book_grid.pdf'")
+    parser.add_argument('--output', type=str, help="A path the generated PDF file (optional). Default: 'output/book_grid_{timestamp}.pdf'")
 
     args = parser.parse_args()
 
-    OUTPUT_PDF = args.output
+    if args.output:
+        OUTPUT_PDF = args.output
+    else:
+        file_name_timestamp = time.strftime("%Y%m%d_%H%M")  # Generate timestamp
+        OUTPUT_PDF = f"output/book_grid_{file_name_timestamp}.pdf"
+
     BORDERED_IMAGES = args.bordered
 
     if args.source == "csv":
